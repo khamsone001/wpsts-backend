@@ -154,10 +154,30 @@ const registerUser = async (req, res) => {
 // @route   POST /api/users/login
 // @access  Public
 const loginUser = async (req, res) => {
-    const { email, password } = req.body;
+    const { identifier, password } = req.body; // Changed email to identifier
 
     try {
-        const user = await User.findOne({ email });
+        let user;
+
+        // Check if identifier looks like an email
+        const isEmail = identifier.includes('@');
+
+        if (isEmail) {
+            user = await User.findOne({ email: identifier });
+        } else {
+            // Assume it's "FirstName LastName"
+            const parts = identifier.trim().split(' ');
+            if (parts.length >= 2) {
+                const firstName = parts[0];
+                const lastName = parts.slice(1).join(' '); // Join the rest in case of multiple last names
+
+                // Search case-insensitive
+                user = await User.findOne({
+                    'personalInfo.firstName': { $regex: new RegExp(`^${firstName}$`, 'i') },
+                    'personalInfo.lastName': { $regex: new RegExp(`^${lastName}$`, 'i') }
+                });
+            }
+        }
 
         if (user && (await bcrypt.compare(password, user.password))) {
             res.json({
@@ -169,9 +189,10 @@ const loginUser = async (req, res) => {
                 ...user.toObject()
             });
         } else {
-            res.status(401).json({ message: 'Invalid email or password' });
+            res.status(401).json({ message: 'Invalid credentials' });
         }
     } catch (error) {
+        console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
