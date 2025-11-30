@@ -43,5 +43,12 @@ const super_admin = (req, res, next) => {
     }
 };
 
+const canManageWorks = (req, res, next) => {
+    if (req.user && ['manager', 'admin', 'super_admin'].includes(req.user.role)) {
+        next();
+    } else {
+        res.status(401).json({ message: 'Not authorized to manage works' });
+    }
+};
 
-module.exports = { protect, admin, super_admin };
+module.exports = { protect, admin, super_admin, canManageWorks };
