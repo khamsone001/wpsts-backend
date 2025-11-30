@@ -166,7 +166,7 @@ const loginUser = async (req, res) => {
         if (isEmail) {
             user = await User.findOne({ email: identifier });
         } else {
-            // Assume it's "FirstName LastName"
+            // Assume it's "FirstName LastName" or "FirstName MiddleName LastName"
             // Trim and split by whitespace, filter out empty strings
             const parts = identifier.trim().split(/\s+/).filter(part => part.length > 0);
 
@@ -174,8 +174,23 @@ const loginUser = async (req, res) => {
                 // Helper function to escape special regex characters
                 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-                const firstName = escapeRegex(parts[0]);
-                const lastName = parts.length > 1 ? escapeRegex(parts.slice(1).join(' ')) : '';
+                let firstName, lastName;
+
+                if (parts.length >= 3) {
+                    // 3 or more words: first 2 words = firstName, rest = lastName
+                    // Example: "แสง อาทิตย์ บุญยงค์" -> firstName: "แสง อาทิตย์", lastName: "บุญยงค์"
+                    firstName = escapeRegex(parts.slice(0, 2).join(' '));
+                    lastName = escapeRegex(parts.slice(2).join(' '));
+                } else if (parts.length === 2) {
+                    // 2 words: normal case
+                    // Example: "สมพร จันทวงศ์" -> firstName: "สมพร", lastName: "จันทวงศ์"
+                    firstName = escapeRegex(parts[0]);
+                    lastName = escapeRegex(parts[1]);
+                } else {
+                    // 1 word: only firstName
+                    firstName = escapeRegex(parts[0]);
+                    lastName = '';
+                }
 
                 // Search case-insensitive
                 if (lastName) {
