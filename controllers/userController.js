@@ -8,8 +8,26 @@ const jwt = require('jsonwebtoken');
 // @access  Public (for now)
 const getUsers = async (req, res) => {
     try {
-        // Sort by workAge in descending order
-        const users = await User.find({}).sort({ 'history.workAge': -1 });
+        // Fetch all users
+        const users = await User.find({});
+
+        // Sort by class (M first, then N), then by workAge descending
+        users.sort((a, b) => {
+            const classA = a.personalInfo?.class || '';
+            const classB = b.personalInfo?.class || '';
+            const workAgeA = a.history?.workAge || 0;
+            const workAgeB = b.history?.workAge || 0;
+
+            // If classes are different, M comes before N
+            if (classA !== classB) {
+                if (classA === 'M') return -1;
+                if (classB === 'M') return 1;
+            }
+
+            // If same class, sort by workAge descending
+            return workAgeB - workAgeA;
+        });
+
         res.json(users);
     } catch (error) {
         console.error(error);
