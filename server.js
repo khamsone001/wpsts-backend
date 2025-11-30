@@ -18,6 +18,7 @@ app.use('/api/documents', require('./routes/documentRoutes'));
 app.use('/api/attendance', require('./routes/routineAttendanceRoutes'));
 app.use('/api/works', require('./routes/workRoutes'));
 app.use('/api/upload', require('./routes/uploadRoutes'));
+app.use('/api/routines', require('./routes/routineRoutes'));
 
 const PORT = process.env.PORT || 5000;
 
