@@ -142,6 +142,7 @@ const registerUser = async (req, res) => {
             email: user.email,
             role: user.role,
             token: jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
+            ...user.toObject()
         });
 
     } catch (error) {
