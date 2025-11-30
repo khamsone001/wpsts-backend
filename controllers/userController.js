@@ -167,16 +167,28 @@ const loginUser = async (req, res) => {
             user = await User.findOne({ email: identifier });
         } else {
             // Assume it's "FirstName LastName"
-            const parts = identifier.trim().split(' ');
-            if (parts.length >= 2) {
-                const firstName = parts[0];
-                const lastName = parts.slice(1).join(' '); // Join the rest in case of multiple last names
+            // Trim and split by whitespace, filter out empty strings
+            const parts = identifier.trim().split(/\s+/).filter(part => part.length > 0);
+
+            if (parts.length >= 1) {
+                // Helper function to escape special regex characters
+                const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+                const firstName = escapeRegex(parts[0]);
+                const lastName = parts.length > 1 ? escapeRegex(parts.slice(1).join(' ')) : '';
 
                 // Search case-insensitive
-                user = await User.findOne({
-                    'personalInfo.firstName': { $regex: new RegExp(`^${firstName}$`, 'i') },
-                    'personalInfo.lastName': { $regex: new RegExp(`^${lastName}$`, 'i') }
-                });
+                if (lastName) {
+                    user = await User.findOne({
+                        'personalInfo.firstName': { $regex: new RegExp(`^${firstName}$`, 'i') },
+                        'personalInfo.lastName': { $regex: new RegExp(`^${lastName}$`, 'i') }
+                    });
+                } else {
+                    // Only first name provided
+                    user = await User.findOne({
+                        'personalInfo.firstName': { $regex: new RegExp(`^${firstName}$`, 'i') }
+                    });
+                }
             }
         }
 
