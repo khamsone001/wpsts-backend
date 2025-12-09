@@ -9,6 +9,6 @@ const { protect, admin } = require('../middleware/authMiddleware.js');
 
 router.get('/:routine/:year/:month', protect, getAttendanceForMonth);
 router.post('/', protect, admin, updateAttendance);
-router.get('/report', protect, getAttendanceReport);
+router.get('/report', protect, getAttendanceReport); // Changed from (protect, admin) to just protect
 
 module.exports = router;

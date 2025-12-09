@@ -115,18 +115,32 @@ const getAttendanceReport = async (req, res) => {
         const start = new Date(startDate);
         const end = new Date(endDate);
 
-        // 1. Get all users (non-managers)
-        const users = await User.find({ role: { $ne: 'manager' } }).sort({ 'history.workAge': -1 });
+        // Normalize start and end to start of day and end of day respectively
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
 
-        // 2. Find all attendance documents within the date range
+        // 1. Get all users (non-managers) - optimized to select only needed fields
+        const users = await User.find({ role: { $ne: 'manager' } })
+            .select('_id personalInfo.name email')
+            .sort({ 'history.workAge': -1 });
+
+        // 2. Find all attendance documents within the date range (year/month overlap)
+        const startYear = start.getFullYear();
+        const endYear = end.getFullYear();
+
         const attendanceDocs = await RoutineAttendance.find({
-            year: { $gte: start.getFullYear(), $lte: end.getFullYear() }
+            year: { $gte: startYear, $lte: endYear }
         });
 
         const allAttendance = {};
+
         attendanceDocs.forEach(doc => {
-            const docDate = new Date(doc.year, doc.month - 1);
-            if (docDate >= new Date(start.getFullYear(), start.getMonth()) && docDate <= end) {
+            // Check if this month is within the range
+            const docMonthStart = new Date(doc.year, doc.month - 1, 1);
+            const docMonthEnd = new Date(doc.year, doc.month, 0, 23, 59, 59, 999);
+
+            // Check for overlap
+            if (docMonthStart <= end && docMonthEnd >= start) {
                 const routine = doc.routine;
                 if (!allAttendance[routine]) {
                     allAttendance[routine] = {};
@@ -136,7 +150,16 @@ const getAttendanceReport = async (req, res) => {
                         if (!allAttendance[routine][userId]) {
                             allAttendance[routine][userId] = {};
                         }
-                        Object.assign(allAttendance[routine][userId], userDays);
+
+                        // Filter specific days
+                        Object.entries(userDays).forEach(([day, dayData]) => {
+                            const currentDay = new Date(doc.year, doc.month - 1, parseInt(day));
+                            currentDay.setHours(12, 0, 0, 0); // Set to noon to avoid timezone edge cases
+
+                            if (currentDay >= start && currentDay <= end) {
+                                allAttendance[routine][userId][day] = dayData;
+                            }
+                        });
                     });
                 }
             }
@@ -157,7 +180,11 @@ const getAttendanceReport = async (req, res) => {
                 Object.entries(userData).forEach(([day, dayData]) => {
                     if (dayData.status === 'absent') {
                         userReport.totalAbsences++;
-                        userReport.routineBreakdown[routine]++;
+                        if (userReport.routineBreakdown[routine] !== undefined) {
+                            userReport.routineBreakdown[routine]++;
+                        } else {
+                            userReport.routineBreakdown[routine] = 1;
+                        }
                         userReport.absenceDetails.push({ routine, day: parseInt(day), note: dayData.note || '-' });
                     }
                 });
@@ -165,7 +192,7 @@ const getAttendanceReport = async (req, res) => {
             return userReport;
         });
 
-        res.json({ users, report: processedData });
+        res.json({ totalUsers: users.length, report: processedData });
     } catch (error) {
         console.error('Error generating report:', error);
         res.status(500).json({ message: 'Server Error' });
