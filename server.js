@@ -37,30 +37,28 @@ process.on('unhandledRejection', (error) => {
     process.exit(1);
 });
 
-// Start server AFTER connecting to database
-const startServer = async () => {
-    try {
-        // Connect to Database first
-        await connectDB();
+// Export app for Vercel
+module.exports = app;
 
-        // Then start the server
-        const server = app.listen(PORT, () => {
-            console.log(`Server running on port ${PORT}`);
-            console.log('Environment check:');
-            console.log('- MONGO_URI:', process.env.MONGO_URI ? '✅ Set' : '❌ Missing');
-            console.log('- JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ Missing');
-            console.log('- CLOUDINARY_CLOUD_NAME:', process.env.CLOUDINARY_CLOUD_NAME ? '✅ Set' : '❌ Missing');
-        });
-
-        server.on('error', (error) => {
-            console.error('Server error:', error);
+// Start server (Only if running locally)
+if (require.main === module) {
+    const startServer = async () => {
+        try {
+            await connectDB();
+            app.listen(PORT, () => {
+                console.log(`Server running on port ${PORT}`);
+                console.log('Environment check:');
+                console.log('- MONGO_URI:', process.env.MONGO_URI ? '✅ Set' : '❌ Missing');
+                console.log('- JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ Missing');
+                console.log('- CLOUDINARY_CLOUD_NAME:', process.env.CLOUDINARY_CLOUD_NAME ? '✅ Set' : '❌ Missing');
+            });
+        } catch (error) {
+            console.error('Failed to start server:', error);
             process.exit(1);
-        });
-    } catch (error) {
-        console.error('Failed to start server:', error);
-        process.exit(1);
-    }
-};
-
-// Start the server
-startServer();
+        }
+    };
+    startServer();
+} else {
+    // For Vercel environment
+    connectDB().catch(err => console.error('MongoDB connection error:', err));
+}
