@@ -73,6 +73,14 @@ if (require.main === module) {
     };
     startServer();
 } else {
-    // For Vercel environment
-    connectDB().catch(err => console.error('MongoDB connection error:', err));
+    // For Vercel environment: Add global middleware to ensure DB connection
+    app.use(async (req, res, next) => {
+        try {
+            await connectDB();
+            next();
+        } catch (error) {
+            console.error('Database connection failed:', error);
+            res.status(500).json({ error: 'Database connection failed' });
+        }
+    });
 }

@@ -1,14 +1,36 @@
 const mongoose = require('mongoose');
 
+let cached = global.mongoose;
+
+if (!cached) {
+    cached = global.mongoose = { conn: null, promise: null };
+}
+
 const connectDB = async () => {
-    try {
-        await mongoose.connect(process.env.MONGO_URI);
-        console.log('MongoDB Connected...');
-    } catch (err) {
-        console.error('MongoDB Connection Error:', err.message);
-        // Do not exit process in serverless environment
-        throw err;
+    if (cached.conn) {
+        return cached.conn;
     }
+
+    if (!cached.promise) {
+        const opts = {
+            bufferCommands: false,
+        };
+
+        cached.promise = mongoose.connect(process.env.MONGO_URI, opts).then((mongoose) => {
+            console.log('MongoDB Connected (Serverless)');
+            return mongoose;
+        });
+    }
+
+    try {
+        cached.conn = await cached.promise;
+    } catch (e) {
+        cached.promise = null;
+        console.error('MongoDB Connection Error:', e.message);
+        throw e;
+    }
+
+    return cached.conn;
 };
 
 module.exports = connectDB;
