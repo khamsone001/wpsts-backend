@@ -9,8 +9,22 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Simple Route for testing
-app.get('/', (req, res) => res.send('WPSTS Management API is running...'));
+// Simple Route for testing with DB Status
+app.get('/', (req, res) => {
+    const mongoose = require('mongoose');
+    const dbState = mongoose.connection.readyState;
+    const statusMap = {
+        0: 'Disconnected',
+        1: 'Connected',
+        2: 'Connecting',
+        3: 'Disconnecting',
+    };
+    res.json({
+        message: 'WPSTS Management API is running...',
+        database: statusMap[dbState] || 'Unknown',
+        timestamp: new Date().toISOString()
+    });
+});
 
 // Define Routes
 app.use('/api/users', require('./routes/userRoutes'));
