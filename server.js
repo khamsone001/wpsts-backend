@@ -9,6 +9,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// DEBUG LOGGER: Log every incoming request
+app.use((req, res, next) => {
+    console.log(`[SERVER LOG] Incoming Request: ${req.method} ${req.url}`);
+    next();
+});
+
 // Simple Route for testing
 app.get('/', (req, res) => res.send('WPSTS Management API is running...'));
 
