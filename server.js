@@ -9,6 +9,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// For Vercel environment: Add global middleware to ensure DB connection BEFORE routes
+if (require.main !== module) {
+    app.use(async (req, res, next) => {
+        try {
+            await connectDB();
+            next();
+        } catch (error) {
+            console.error('Database connection failed:', error);
+            res.status(500).json({ error: 'Database connection failed' });
+        }
+    });
+}
+
 // Simple Route for testing with DB Status
 app.get('/', (req, res) => {
     const mongoose = require('mongoose');
@@ -73,14 +86,4 @@ if (require.main === module) {
     };
     startServer();
 } else {
-    // For Vercel environment: Add global middleware to ensure DB connection
-    app.use(async (req, res, next) => {
-        try {
-            await connectDB();
-            next();
-        } catch (error) {
-            console.error('Database connection failed:', error);
-            res.status(500).json({ error: 'Database connection failed' });
-        }
-    });
 }
