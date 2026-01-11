@@ -9,19 +9,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// For Vercel environment: Add global middleware to ensure DB connection BEFORE routes
-if (require.main !== module) {
-    app.use(async (req, res, next) => {
-        try {
-            await connectDB();
-            next();
-        } catch (error) {
-            console.error('Database connection failed:', error);
-            res.status(500).json({ error: 'Database connection failed' });
-        }
-    });
-}
-
 // Simple Route for testing with DB Status
 app.get('/', (req, res) => {
     const mongoose = require('mongoose');
@@ -64,26 +51,21 @@ process.on('unhandledRejection', (error) => {
     process.exit(1);
 });
 
-// Export app for Vercel
-module.exports = app;
+// Start server
+const startServer = async () => {
+    try {
+        await connectDB();
+        app.listen(PORT, () => {
+            console.log(`Server running on port ${PORT}`);
+            console.log('Environment check:');
+            console.log('- MONGO_URI:', process.env.MONGO_URI ? '✅ Set' : '❌ Missing');
+            console.log('- JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ Missing');
+            console.log('- CLOUDINARY_CLOUD_NAME:', process.env.CLOUDINARY_CLOUD_NAME ? '✅ Set' : '❌ Missing');
+        });
+    } catch (error) {
+        console.error('Failed to start server:', error);
+        process.exit(1);
+    }
+};
 
-// Start server (Only if running locally)
-if (require.main === module) {
-    const startServer = async () => {
-        try {
-            await connectDB();
-            app.listen(PORT, () => {
-                console.log(`Server running on port ${PORT}`);
-                console.log('Environment check:');
-                console.log('- MONGO_URI:', process.env.MONGO_URI ? '✅ Set' : '❌ Missing');
-                console.log('- JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ Missing');
-                console.log('- CLOUDINARY_CLOUD_NAME:', process.env.CLOUDINARY_CLOUD_NAME ? '✅ Set' : '❌ Missing');
-            });
-        } catch (error) {
-            console.error('Failed to start server:', error);
-            process.exit(1);
-        }
-    };
-    startServer();
-} else {
-}
+startServer();
