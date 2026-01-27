@@ -13,18 +13,41 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Simple Route for testing with DB Status
-app.get('/', (req, res) => {
+// Health Check & Diagnostic Route
+app.get('/api/health', (req, res) => {
     const mongoose = require('mongoose');
     const dbState = mongoose.connection.readyState;
-    const statusMap = {
-        0: 'Disconnected',
-        1: 'Connected',
-        2: 'Connecting',
-        3: 'Disconnecting',
-    };
+    const statusMap = { 0: 'Disconnected', 1: 'Connected', 2: 'Connecting', 3: 'Disconnecting' };
+
     res.json({
-        message: 'WPSTS Management API is running...',
+        status: 'UP',
+        environment: process.env.VERCEL ? 'Vercel' : (process.env.RAILWAY_STATIC_URL ? 'Railway' : 'Other/Local'),
+        database: {
+            status: statusMap[dbState] || 'Unknown',
+            connected: dbState === 1
+        },
+        env_check: {
+            MONGO_URI: !!process.env.MONGO_URI,
+            JWT_SECRET: !!process.env.JWT_SECRET
+        },
+        timestamp: new Date().toISOString()
+    });
+});
+
+app.get('/', (req, res) => {
+    const mongoose = require('mongoose');
+    if (!process.env.MONGO_URI) {
+        return res.status(500).json({
+            error: 'ENVIRONMENT_VARIABLE_MISSING',
+            message: 'MONGO_URI is not set in the environment variables.',
+            platform: process.env.VERCEL ? 'Vercel' : 'Other'
+        });
+    }
+
+    const dbState = mongoose.connection.readyState;
+    const statusMap = { 0: 'Disconnected', 1: 'Connected', 2: 'Connecting', 3: 'Disconnecting' };
+    res.json({
+        message: 'WPSTS Management API (Production) is running...',
         database: statusMap[dbState] || 'Unknown',
         timestamp: new Date().toISOString()
     });
