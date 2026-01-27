@@ -69,16 +69,12 @@ module.exports = app;
 // Start server function
 const startServer = async () => {
     try {
-        await connectDB();
-
-        // Only listen if not running as a Vercel serverless function
-        if (process.env.VERCEL) {
-            console.log('Running as Vercel Serverless Function');
-        } else {
+        // Start listening IMMEDIATELY for Render/Railway/Local
+        if (!process.env.VERCEL) {
             app.listen(PORT, () => {
-                console.log(`Server running on port ${PORT}`);
-                console.log('Environment check (Long-running mode):');
-                console.log('- MONGO_URI:', process.env.MONGO_URI ? '✅ Set' : '❌ Missing');
+                console.log(`🚀 Server UP on port ${PORT}`);
+                // Background connection
+                connectDB().catch(e => console.error('BG DB Error:', e.message));
             });
         }
     } catch (error) {
@@ -89,7 +85,8 @@ const startServer = async () => {
 
 // Initialize
 if (process.env.VERCEL) {
-    connectDB();
+    // Vercel serverless: initiate connection but don't block
+    connectDB().catch(e => console.error('Vercel BG DB Error:', e.message));
 } else {
     startServer();
 }
