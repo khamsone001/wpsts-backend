@@ -13,6 +13,12 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Ensure DB is connected before every request (critical for Vercel serverless)
+app.use(async (req, res, next) => {
+    await connectDB();
+    next();
+});
+
 // Health Check & Diagnostic Route
 app.get('/api/health', (req, res) => {
     const mongoose = require('mongoose');
@@ -69,24 +75,21 @@ module.exports = app;
 // Start server function
 const startServer = async () => {
     try {
-        // Start listening IMMEDIATELY for Render/Railway/Local
-        if (!process.env.VERCEL) {
-            app.listen(PORT, () => {
-                console.log(`🚀 Server UP on port ${PORT}`);
-                // Background connection
-                connectDB().catch(e => console.error('BG DB Error:', e.message));
-            });
-        }
+        // Wait for DB before accepting requests (critical for Render)
+        await connectDB();
+        app.listen(PORT, () => {
+            console.log(`🚀 Server UP on port ${PORT} | DB Connected`);
+        });
     } catch (error) {
         console.error('Failed to initialize server:', error);
-        if (!process.env.VERCEL) process.exit(1);
+        process.exit(1);
     }
 };
 
 // Initialize
 if (process.env.VERCEL) {
-    // Vercel serverless: initiate connection but don't block
-    connectDB().catch(e => console.error('Vercel BG DB Error:', e.message));
+    // Vercel serverless: connectDB is handled per-request by middleware above
+    console.log('Vercel mode: DB connection handled per-request');
 } else {
     startServer();
 }
