@@ -6,11 +6,43 @@ const connectDB = require('./config/db');
 const app = express();
 
 // Middleware
-app.use(cors({
-    origin: '*',
+// Dynamic CORS configuration for mobile apps
+const corsOptions = {
+    origin: function (origin, callback) {
+        // Allow requests from mobile apps and known origins
+        const allowedOrigins = [
+            'https://wpsts-backend002.vercel.app',
+            'https://wpsts-backend-007.onrender.com',
+            'https://wpsts04-production.up.railway.app',
+        ];
+        
+        // Allow requests without origin (like mobile apps using fetch)
+        if (!origin) return callback(null, true);
+        
+        // Allow all Expo Go and mobile app origins (exp://, expo://)
+        if (origin.startsWith('exp://') || origin.startsWith('expo://')) {
+            return callback(null, true);
+        }
+        
+        // Allow localhost for development
+        if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+            return callback(null, true);
+        }
+        
+        if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.log('CORS rejected:', origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Ensure DB is connected before every request (critical for Vercel serverless)
