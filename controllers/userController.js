@@ -1,4 +1,4 @@
-const supabase = require('../config/supabaseClient');
+const { supabase, supabaseAdmin } = require('../config/supabaseClient');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -111,19 +111,17 @@ const registerUser = async (req, res) => {
     const { email, password, personalInfo, history, photoURL } = req.body;
     
     try {
-        // Check if user already exists
+        // Check if user already exists in profiles
         const { data: existingUser, error: existingError } = await supabase
             .from('profiles')
             .select('id')
             .eq('email', email)
             .single();
 
-        // If user exists, return error (ignore PGRST116 which means "not found")
         if (existingUser) {
             return res.status(400).json({ message: 'User already exists' });
         }
         
-        // Check for other errors
         if (existingError && existingError.code !== 'PGRST116') {
             console.error('Check existing user error:', existingError);
             throw existingError;
@@ -138,6 +136,28 @@ const registerUser = async (req, res) => {
         const role = userCount === 0 ? 'super_admin' : 'user';
         const isApproved = userCount === 0;
 
+        // Create user in Supabase Auth if admin client is available
+        let authUserId = null;
+        if (supabaseAdmin) {
+            const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+                email,
+                password,
+                email_confirm: true,
+                user_metadata: {
+                    first_name: personalInfo?.firstName,
+                    last_name: personalInfo?.lastName
+                }
+            });
+            
+            if (authError) {
+                console.error('Supabase Auth create user error:', authError);
+                // Continue anyway - might be duplicate in auth
+            } else if (authData?.user) {
+                authUserId = authData.user.id;
+            }
+        }
+
+        // Hash password for our profiles table
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
@@ -147,6 +167,7 @@ const registerUser = async (req, res) => {
             role,
             approved: isApproved,
             photo_url: photoURL,
+            firebase_uid: authUserId,
             first_name: personalInfo?.firstName,
             last_name: personalInfo?.lastName,
             name: personalInfo?.name,
