@@ -148,9 +148,9 @@ const getAttendanceReport = async (req, res) => {
 
         const { data: users, userError } = await supabase
             .from('profiles')
-            .select('id, first_name, last_name, email, history')
+            .select('id, first_name, last_name, email, work_age, class, photo_url')
             .neq('role', 'manager')
-            .order('history.work_age', { ascending: false });
+            .order('work_age', { ascending: false });
 
         if (userError) throw userError;
 
