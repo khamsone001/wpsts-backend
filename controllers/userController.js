@@ -65,9 +65,77 @@ const updateUser = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
+        const input = req.body;
+
+        let updateData = { ...input };
+
+        if (input.personalInfo) {
+            updateData.first_name = input.personalInfo.firstName;
+            updateData.last_name = input.personalInfo.lastName;
+            updateData.name = input.personalInfo.name;
+            updateData.nickname = input.personalInfo.nickname;
+            updateData.age = input.personalInfo.age;
+            updateData.class = input.personalInfo.class;
+            updateData.address_house = input.personalInfo.currentAddress?.house;
+            updateData.address_city = input.personalInfo.currentAddress?.city;
+            updateData.address_district = input.personalInfo.currentAddress?.district;
+            delete updateData.personalInfo;
+        }
+
+        if (input.history) {
+            updateData.work_age = input.history.workAge;
+            updateData.birth_date = input.history.birthDate;
+            updateData.birth_place_house = input.history.placeOfBirth?.house;
+            updateData.birth_place_city = input.history.placeOfBirth?.city;
+            updateData.birth_place_district = input.history.placeOfBirth?.district;
+            updateData.race = input.history.race;
+            updateData.nationality = input.history.nationality;
+            updateData.tribe = input.history.tribe;
+            updateData.education = input.history.education;
+            updateData.class_n_entry_date = input.history.classN?.entryDate;
+            updateData.class_n_location_house = input.history.classN?.location?.house;
+            updateData.class_n_location_city = input.history.classN?.location?.city;
+            updateData.class_n_location_district = input.history.classN?.location?.district;
+            updateData.class_n_issuer_name = input.history.classN?.issuerName;
+            updateData.class_n_id_card = input.history.classN?.idCard;
+            updateData.class_n_total_work_age = input.history.classN?.totalWorkAge;
+            updateData.class_m_entry_date = input.history.classM?.entryDate;
+            updateData.class_m_location_house = input.history.classM?.location?.house;
+            updateData.class_m_location_city = input.history.classM?.location?.city;
+            updateData.class_m_location_district = input.history.classM?.location?.district;
+            updateData.class_m_issuer_name = input.history.classM?.issuerName;
+            updateData.class_m_id_card = input.history.classM?.idCard;
+            updateData.class_m_total_work_age = input.history.classM?.totalWorkAge;
+            updateData.father_first_name = input.history.father?.firstName;
+            updateData.father_last_name = input.history.father?.lastName;
+            updateData.father_age = input.history.father?.age;
+            updateData.father_place_birth_house = input.history.father?.placeOfBirth?.house;
+            updateData.father_place_birth_city = input.history.father?.placeOfBirth?.city;
+            updateData.father_place_birth_district = input.history.father?.placeOfBirth?.district;
+            updateData.father_current_address_house = input.history.father?.currentAddress?.house;
+            updateData.father_current_address_city = input.history.father?.currentAddress?.city;
+            updateData.father_current_address_district = input.history.father?.currentAddress?.district;
+            updateData.mother_first_name = input.history.mother?.firstName;
+            updateData.mother_last_name = input.history.mother?.lastName;
+            updateData.mother_age = input.history.mother?.age;
+            updateData.mother_place_birth_house = input.history.mother?.placeOfBirth?.house;
+            updateData.mother_place_birth_city = input.history.mother?.placeOfBirth?.city;
+            updateData.mother_place_birth_district = input.history.mother?.placeOfBirth?.district;
+            updateData.mother_current_address_house = input.history.mother?.currentAddress?.house;
+            updateData.mother_current_address_city = input.history.mother?.currentAddress?.city;
+            updateData.mother_current_address_district = input.history.mother?.currentAddress?.district;
+            updateData.skill_level = input.history.skillLevel;
+            delete updateData.history;
+        }
+
+        if (input.photoURL) {
+            updateData.photo_url = input.photoURL;
+            delete updateData.photoURL;
+        }
+
         const { data: updatedUser, error } = await supabase
             .from('profiles')
-            .update(req.body)
+            .update(updateData)
             .eq('id', req.params.id)
             .select()
             .single();
