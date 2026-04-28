@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const supabase = require('./config/supabaseClient');
 
 const app = express();
 
@@ -116,6 +115,7 @@ module.exports = app;
 const startServer = async () => {
     try {
         // Verify Supabase connection
+        const { supabase } = require('./config/supabaseClient');
         const { data, error } = await supabase.from('profiles').select('id').limit(1);
         if (error) {
             console.error('❌ Supabase Connection Error:', error.message);
