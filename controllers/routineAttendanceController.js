@@ -1,66 +1,56 @@
-const RoutineAttendance = require('../models/RoutineAttendance');
-const User = require('../models/User.js');
+const supabase = require('../config/supabaseClient');
 
-/**
- * Merges attendance records from multiple admins into a single, definitive record.
- * The rule is: if there's any "absent" mark for a day, the final status is "absent".
- * The most recent note for an "absent" status is kept.
- */
 const mergeAdminRecords = (adminRecords) => {
     const merged = {};
     if (!adminRecords) return merged;
 
-    // Iterate over each admin's records
     Object.values(adminRecords).forEach(userRecords => {
-        // Iterate over each user marked by the admin
         Object.entries(userRecords).forEach(([userId, dayRecords]) => {
             if (!merged[userId]) {
                 merged[userId] = {};
             }
-            // Iterate over each day marked for the user
             Object.entries(dayRecords).forEach(([day, attendanceData]) => {
                 const existingData = merged[userId][day];
 
-                // If the day hasn't been marked yet, just add it.
                 if (!existingData) {
                     merged[userId][day] = attendanceData;
                     return;
                 }
 
-                // If the new mark is 'absent', it overrides 'present'.
                 if (attendanceData.status === 'absent') {
-                    // If the existing mark is also 'absent', keep the one with the newer timestamp.
                     if (existingData.status === 'absent') {
                         if (attendanceData.timestamp > existingData.timestamp) {
                             merged[userId][day] = attendanceData;
                         }
                     } else {
-                        // If existing was 'present', 'absent' wins.
                         merged[userId][day] = attendanceData;
                     }
                 }
-                // If the new mark is 'present' and the existing is 'absent', do nothing.
             });
         });
     });
     return merged;
 };
 
-
-// @desc    Get attendance data for a specific routine and month
-// @route   GET /api/attendance/:routine/:year/:month
 const getAttendanceForMonth = async (req, res) => {
     try {
         const { routine, year, month } = req.params;
         const monthKey = `${routine}_${year}-${String(month).padStart(2, '0')}`;
 
-        const attendanceDoc = await RoutineAttendance.findOne({ monthKey });
+        const { data, error } = await supabase
+            .from('attendance_monthly')
+            .select('*')
+            .eq('routine', routine)
+            .eq('year', parseInt(year))
+            .eq('month', parseInt(month))
+            .single();
 
-        if (attendanceDoc) {
-            res.json(attendanceDoc);
+        if (error && error.code !== 'PGRST116') throw error;
+
+        if (data) {
+            res.json(data);
         } else {
-            // Return empty structure if no record exists for that month yet
-            res.json({ adminRecords: {}, mergedRecords: {} });
+            res.json({ month_key: monthKey, routine, year: parseInt(year), month: parseInt(month), admin_records: {}, merged_records: {} });
         }
     } catch (error) {
         console.error(error);
@@ -68,33 +58,70 @@ const getAttendanceForMonth = async (req, res) => {
     }
 };
 
-// @desc    Update attendance data
-// @route   POST /api/attendance
 const updateAttendance = async (req, res) => {
     try {
         const { routine, year, month, adminId, userId, day, status, note } = req.body;
         const monthKey = `${routine}_${year}-${String(month).padStart(2, '0')}`;
 
-        let attendanceDoc = await RoutineAttendance.findOne({ monthKey });
+        let { data: existingDoc } = await supabase
+            .from('attendance_monthly')
+            .select('*')
+            .eq('routine', routine)
+            .eq('year', year)
+            .eq('month', month)
+            .single();
 
-        if (!attendanceDoc) {
-            attendanceDoc = new RoutineAttendance({ monthKey, routine, year, month });
+        let adminRecords = existingDoc?.admin_records || {};
+        let mergedRecords = existingDoc?.merged_records || {};
+
+        if (!adminRecords[adminId]) {
+            adminRecords[adminId] = {};
+        }
+        if (!adminRecords[adminId][userId]) {
+            adminRecords[adminId][userId] = {};
         }
 
-        // Update the specific admin's record
-        const adminRecordPath = `adminRecords.${adminId}.${userId}.${day}`;
-        attendanceDoc.set(adminRecordPath, {
+        adminRecords[adminId][userId][day] = {
             status,
             note: status === 'absent' ? note : '',
             timestamp: Date.now(),
-        });
+        };
 
-        // Re-calculate the merged records
-        const newMergedRecords = mergeAdminRecords(attendanceDoc.adminRecords);
-        attendanceDoc.mergedRecords = newMergedRecords;
+        mergedRecords = mergeAdminRecords(adminRecords);
 
-        const savedDoc = await attendanceDoc.save();
-        res.json(savedDoc);
+        let result;
+        if (existingDoc) {
+            const { data, error } = await supabase
+                .from('attendance_monthly')
+                .update({
+                    admin_records: adminRecords,
+                    merged_records: mergedRecords
+                })
+                .eq('id', existingDoc.id)
+                .select()
+                .single();
+            
+            if (error) throw error;
+            result = data;
+        } else {
+            const { data, error } = await supabase
+                .from('attendance_monthly')
+                .insert([{
+                    month_key: monthKey,
+                    routine,
+                    year,
+                    month,
+                    admin_records: adminRecords,
+                    merged_records: mergedRecords
+                }])
+                .select()
+                .single();
+            
+            if (error) throw error;
+            result = data;
+        }
+
+        res.json(result);
 
     } catch (error) {
         console.error(error);
@@ -102,8 +129,6 @@ const updateAttendance = async (req, res) => {
     }
 };
 
-// @desc    Get attendance report data for a date range
-// @route   GET /api/attendance/report?startDate=...&endDate=...
 const getAttendanceReport = async (req, res) => {
     const { startDate, endDate } = req.query;
 
@@ -115,46 +140,48 @@ const getAttendanceReport = async (req, res) => {
         const start = new Date(startDate);
         const end = new Date(endDate);
 
-        // Normalize start and end to start of day and end of day respectively
         start.setHours(0, 0, 0, 0);
         end.setHours(23, 59, 59, 999);
 
-        // 1. Get all users (non-managers) - optimized to select only needed fields
-        const users = await User.find({ role: { $ne: 'manager' } })
-            .select('_id personalInfo.name email')
-            .sort({ 'history.workAge': -1 });
-
-        // 2. Find all attendance documents within the date range (year/month overlap)
         const startYear = start.getFullYear();
         const endYear = end.getFullYear();
 
-        const attendanceDocs = await RoutineAttendance.find({
-            year: { $gte: startYear, $lte: endYear }
-        });
+        const { data: users, userError } = await supabase
+            .from('profiles')
+            .select('id, first_name, last_name, email, history')
+            .neq('role', 'manager')
+            .order('history.work_age', { ascending: false });
+
+        if (userError) throw userError;
+
+        const { data: attendanceDocs, attError } = await supabase
+            .from('attendance_monthly')
+            .select('*')
+            .gte('year', startYear)
+            .lte('year', endYear);
+
+        if (attError) throw attError;
 
         const allAttendance = {};
 
         attendanceDocs.forEach(doc => {
-            // Check if this month is within the range
             const docMonthStart = new Date(doc.year, doc.month - 1, 1);
             const docMonthEnd = new Date(doc.year, doc.month, 0, 23, 59, 59, 999);
 
-            // Check for overlap
             if (docMonthStart <= end && docMonthEnd >= start) {
                 const routine = doc.routine;
                 if (!allAttendance[routine]) {
                     allAttendance[routine] = {};
                 }
-                if (doc.mergedRecords) {
-                    Object.entries(doc.mergedRecords).forEach(([userId, userDays]) => {
+                if (doc.merged_records) {
+                    Object.entries(doc.merged_records).forEach(([userId, userDays]) => {
                         if (!allAttendance[routine][userId]) {
                             allAttendance[routine][userId] = {};
                         }
 
-                        // Filter specific days
                         Object.entries(userDays).forEach(([day, dayData]) => {
                             const currentDay = new Date(doc.year, doc.month - 1, parseInt(day));
-                            currentDay.setHours(12, 0, 0, 0); // Set to noon to avoid timezone edge cases
+                            currentDay.setHours(12, 0, 0, 0);
 
                             if (currentDay >= start && currentDay <= end) {
                                 allAttendance[routine][userId][day] = dayData;
@@ -165,18 +192,17 @@ const getAttendanceReport = async (req, res) => {
             }
         });
 
-        // 3. Process data for each user
         const processedData = users.map(user => {
             const userReport = {
-                uid: user._id.toString(),
-                name: user.personalInfo?.name || user.email,
+                uid: user.id,
+                name: user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : user.email,
                 totalAbsences: 0,
                 routineBreakdown: { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0, G: 0 },
                 absenceDetails: []
             };
 
             Object.entries(allAttendance).forEach(([routine, routineData]) => {
-                const userData = routineData[user._id.toString()] || {};
+                const userData = routineData[user.id] || {};
                 Object.entries(userData).forEach(([day, dayData]) => {
                     if (dayData.status === 'absent') {
                         userReport.totalAbsences++;

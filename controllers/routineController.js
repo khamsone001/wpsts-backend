@@ -1,113 +1,136 @@
-const Routine = require('../models/Routine');
+const supabase = require('../config/supabaseClient');
 
-// @desc    Get all routines or filter by type
-// @route   GET /api/routines?type=main|sub
-// @access  Public
 const getRoutines = async (req, res) => {
     try {
         const { type } = req.query;
-        const filter = type ? { type } : {};
+        let query = supabase.from('routines').select('*').order('order', { ascending: true });
+        
+        if (type) {
+            query = query.eq('type', type);
+        }
 
-        const routines = await Routine.find(filter).sort({ order: 1 });
-        res.json(routines);
+        const { data, error } = await query;
+        
+        if (error) throw error;
+        res.json(data);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Get single routine by ID
-// @route   GET /api/routines/:id
-// @access  Public
 const getRoutineById = async (req, res) => {
     try {
-        const routine = await Routine.findOne({ id: req.params.id.toUpperCase() });
+        const { data, error } = await supabase
+            .from('routines')
+            .select('*')
+            .eq('id', req.params.id.toUpperCase())
+            .single();
 
-        if (!routine) {
+        if (error) throw error;
+
+        if (!data) {
             return res.status(404).json({ message: 'Routine not found' });
         }
 
-        res.json(routine);
+        res.json(data);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Create new routine
-// @route   POST /api/routines
-// @access  Private (Super Admin only)
 const createRoutine = async (req, res) => {
     try {
         const { id, name, description, type, order } = req.body;
 
-        // Validate required fields
         if (!id || !name || !type) {
             return res.status(400).json({ message: 'ID, name, and type are required' });
         }
 
-        // Check if routine with this ID already exists
-        const existingRoutine = await Routine.findOne({ id: id.toUpperCase() });
+        const { data: existingRoutine } = await supabase
+            .from('routines')
+            .select('id')
+            .eq('id', id.toUpperCase())
+            .single();
+
         if (existingRoutine) {
             return res.status(400).json({ message: 'Routine with this ID already exists' });
         }
 
-        const routine = await Routine.create({
-            id: id.toUpperCase(),
-            name,
-            description: description || '',
-            type,
-            order: order || 0
-        });
+        const { data, error } = await supabase
+            .from('routines')
+            .insert([{
+                id: id.toUpperCase(),
+                name,
+                description: description || '',
+                type,
+                order: order || 0
+            }])
+            .select()
+            .single();
 
-        res.status(201).json(routine);
+        if (error) throw error;
+        res.status(201).json(data);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Update routine
-// @route   PUT /api/routines/:id
-// @access  Private (Super Admin only)
 const updateRoutine = async (req, res) => {
     try {
         const { name, description, type, order } = req.body;
 
-        const routine = await Routine.findOne({ id: req.params.id.toUpperCase() });
+        const { data: routine, error: findError } = await supabase
+            .from('routines')
+            .select('*')
+            .eq('id', req.params.id.toUpperCase())
+            .single();
 
-        if (!routine) {
+        if (findError || !routine) {
             return res.status(404).json({ message: 'Routine not found' });
         }
 
-        // Update fields
-        if (name) routine.name = name;
-        if (description !== undefined) routine.description = description;
-        if (type) routine.type = type;
-        if (order !== undefined) routine.order = order;
+        const updateData = {};
+        if (name) updateData.name = name;
+        if (description !== undefined) updateData.description = description;
+        if (type) updateData.type = type;
+        if (order !== undefined) updateData.order = order;
 
-        await routine.save();
+        const { data, error } = await supabase
+            .from('routines')
+            .update(updateData)
+            .eq('id', req.params.id.toUpperCase())
+            .select()
+            .single();
 
-        res.json(routine);
+        if (error) throw error;
+        res.json(data);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Delete routine
-// @route   DELETE /api/routines/:id
-// @access  Private (Super Admin only)
 const deleteRoutine = async (req, res) => {
     try {
-        const routine = await Routine.findOne({ id: req.params.id.toUpperCase() });
+        const { data: routine, error: findError } = await supabase
+            .from('routines')
+            .select('*')
+            .eq('id', req.params.id.toUpperCase())
+            .single();
 
-        if (!routine) {
+        if (findError || !routine) {
             return res.status(404).json({ message: 'Routine not found' });
         }
 
-        await Routine.deleteOne({ id: req.params.id.toUpperCase() });
+        const { error } = await supabase
+            .from('routines')
+            .delete()
+            .eq('id', req.params.id.toUpperCase());
 
+        if (error) throw error;
         res.json({ message: 'Routine deleted successfully' });
     } catch (error) {
         console.error(error);

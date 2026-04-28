@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const connectDB = require('./config/db');
+const supabase = require('./config/supabaseClient');
 
 const app = express();
 
@@ -45,50 +45,58 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// Ensure DB is connected before every request (critical for Vercel serverless)
-app.use(async (req, res, next) => {
-    await connectDB();
-    next();
-});
-
 // Health Check & Diagnostic Route
-app.get('/api/health', (req, res) => {
-    const mongoose = require('mongoose');
-    const dbState = mongoose.connection.readyState;
-    const statusMap = { 0: 'Disconnected', 1: 'Connected', 2: 'Connecting', 3: 'Disconnecting' };
-
-    res.json({
-        status: 'UP',
-        environment: process.env.VERCEL ? 'Vercel' : (process.env.RAILWAY_STATIC_URL ? 'Railway' : 'Other/Local'),
-        database: {
-            status: statusMap[dbState] || 'Unknown',
-            connected: dbState === 1
-        },
-        env_check: {
-            MONGO_URI: !!process.env.MONGO_URI,
-            JWT_SECRET: !!process.env.JWT_SECRET
-        },
-        timestamp: new Date().toISOString()
-    });
+app.get('/api/health', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('profiles').select('id').limit(1);
+        
+        res.json({
+            status: 'UP',
+            environment: process.env.VERCEL ? 'Vercel' : (process.env.RAILWAY_STATIC_URL ? 'Railway' : 'Other/Local'),
+            database: {
+                status: error ? 'Error' : 'Connected',
+                connected: !error
+            },
+            env_check: {
+                SUPABASE_URL: !!process.env.SUPABASE_URL,
+                JWT_SECRET: !!process.env.JWT_SECRET
+            },
+            timestamp: new Date().toISOString()
+        });
+    } catch (err) {
+        res.json({
+            status: 'UP',
+            database: { status: 'Error', connected: false },
+            error: err.message,
+            timestamp: new Date().toISOString()
+        });
+    }
 });
 
-app.get('/', (req, res) => {
-    const mongoose = require('mongoose');
-    if (!process.env.MONGO_URI) {
+app.get('/', async (req, res) => {
+    if (!process.env.SUPABASE_URL) {
         return res.status(500).json({
             error: 'ENVIRONMENT_VARIABLE_MISSING',
-            message: 'MONGO_URI is not set in the environment variables.',
+            message: 'SUPABASE_URL is not set in the environment variables.',
             platform: process.env.VERCEL ? 'Vercel' : 'Other'
         });
     }
 
-    const dbState = mongoose.connection.readyState;
-    const statusMap = { 0: 'Disconnected', 1: 'Connected', 2: 'Connecting', 3: 'Disconnecting' };
-    res.json({
-        message: 'WPSTS Management API (Production) is running...',
-        database: statusMap[dbState] || 'Unknown',
-        timestamp: new Date().toISOString()
-    });
+    try {
+        const { data, error } = await supabase.from('profiles').select('id').limit(1);
+        res.json({
+            message: 'WPSTS Management API (Production) is running...',
+            database: error ? 'Error' : 'Connected',
+            timestamp: new Date().toISOString()
+        });
+    } catch (err) {
+        res.json({
+            message: 'WPSTS Management API (Production) is running...',
+            database: 'Error',
+            error: err.message,
+            timestamp: new Date().toISOString()
+        });
+    }
 });
 
 // Define Routes
@@ -107,10 +115,15 @@ module.exports = app;
 // Start server function
 const startServer = async () => {
     try {
-        // Wait for DB before accepting requests (critical for Render)
-        await connectDB();
+        // Verify Supabase connection
+        const { data, error } = await supabase.from('profiles').select('id').limit(1);
+        if (error) {
+            console.error('❌ Supabase Connection Error:', error.message);
+            process.exit(1);
+        }
+        
         app.listen(PORT, () => {
-            console.log(`🚀 Server UP on port ${PORT} | DB Connected`);
+            console.log(`🚀 Server UP on port ${PORT} | Supabase Connected`);
         });
     } catch (error) {
         console.error('Failed to initialize server:', error);
@@ -120,8 +133,7 @@ const startServer = async () => {
 
 // Initialize
 if (process.env.VERCEL) {
-    // Vercel serverless: connectDB is handled per-request by middleware above
-    console.log('Vercel mode: DB connection handled per-request');
+    console.log('Vercel mode: Serverless function');
 } else {
     startServer();
 }

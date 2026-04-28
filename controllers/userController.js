@@ -1,263 +1,318 @@
-const User = require('../models/User.js');
+const supabase = require('../config/supabaseClient');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-
-// @desc    Get all users
-// @route   GET /api/users
-// @access  Public (for now)
 const getUsers = async (req, res) => {
     try {
-        // Fetch all users
-        const users = await User.find({});
+        const { data: users, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .order('created_at', { ascending: false });
 
-        // Sort by class (M first, then N), then by workAge descending
+        if (error) throw error;
+
         users.sort((a, b) => {
-            const classA = a.personalInfo?.class || '';
-            const classB = b.personalInfo?.class || '';
-            const workAgeA = a.history?.workAge || 0;
-            const workAgeB = b.history?.workAge || 0;
+            const classA = a.class || '';
+            const classB = b.class || '';
+            const workAgeA = a.work_age || 0;
+            const workAgeB = b.work_age || 0;
 
-            // If classes are different, M comes before N
             if (classA !== classB) {
                 if (classA === 'M') return -1;
                 if (classB === 'M') return 1;
             }
 
-            // If same class, sort by workAge descending
             return workAgeB - workAgeA;
         });
 
         res.json(users);
     } catch (error) {
-        console.error(error);
+        console.error('getUsers error:', error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Get user by ID
-// @route   GET /api/users/:id
-// @access  Public (for now)
 const getUserById = async (req, res) => {
     try {
-        const user = await User.findById(req.params.id);
+        const { data: user, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
+
+        if (error) throw error;
+        
         if (user) {
             res.json(user);
         } else {
             res.status(404).json({ message: 'User not found' });
         }
     } catch (error) {
-        console.error(error);
+        console.error('getUserById error:', error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Update a user
-// @route   PUT /api/users/:id
-// @access  Private (to be implemented)
 const updateUser = async (req, res) => {
     try {
-        const userToUpdate = await User.findById(req.params.id);
+        const { data: userToUpdate, error: findError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
 
-        if (!userToUpdate) {
+        if (findError || !userToUpdate) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Permission Check:
-        // 1. A super_admin can update anyone.
-        // 2. A regular user can only update their own profile.
-        if (req.user.role !== 'super_admin' && req.user._id.toString() !== userToUpdate._id.toString()) {
-            return res.status(403).json({ message: 'Not authorized to update this profile' });
-        }
+        const { data: updatedUser, error } = await supabase
+            .from('profiles')
+            .update(req.body)
+            .eq('id', req.params.id)
+            .select()
+            .single();
 
-        const updatedUser = await User.findByIdAndUpdate(req.params.id, req.body, {
-            new: true, // Return the updated document
-            runValidators: true,
-        }).select('-password'); // Exclude password from the response
-
+        if (error) throw error;
         res.json(updatedUser);
 
     } catch (error) {
-        console.error(error);
+        console.error('updateUser error:', error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Delete a user
-// @route   DELETE /api/users/:id
-// @access  Private (Super Admin only)
 const deleteUser = async (req, res) => {
     try {
-        const userToDelete = await User.findById(req.params.id);
+        const { data: userToDelete, error: findError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
 
-        if (!userToDelete) {
+        if (findError || !userToDelete) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Rule 1: A user cannot delete themselves.
-        if (req.user._id.toString() === userToDelete._id.toString()) {
-            return res.status(400).json({ message: 'You cannot delete your own account.' });
-        }
+        const { error } = await supabase
+            .from('profiles')
+            .delete()
+            .eq('id', req.params.id);
 
-        // Rule 2 & 3: Hierarchical deletion for super_admins
-        if (userToDelete.role === 'super_admin') {
-            // Find the very first super_admin (Genesis Admin)
-            const genesisAdmin = await User.findOne({ role: 'super_admin' }).sort({ createdAt: 'asc' });
-
-            if (!genesisAdmin) {
-                return res.status(500).json({ message: 'System error: Cannot identify the primary super admin.' });
-            }
-
-            // If the user trying to delete is NOT the genesis admin, they cannot delete another super admin.
-            if (req.user._id.toString() !== genesisAdmin._id.toString()) {
-                return res.status(403).json({ message: 'Only the first super admin can delete other super admins.' });
-            }
-        }
-
-        await User.findByIdAndDelete(req.params.id);
+        if (error) throw error;
         res.json({ message: 'User removed successfully' });
 
     } catch (error) {
-        console.error(error);
+        console.error('deleteUser error:', error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// @desc    Register a new user
-// @route   POST /api/users/register
-// @access  Public
 const registerUser = async (req, res) => {
     const { email, password, personalInfo, history, photoURL } = req.body;
-
+    
     try {
-        const userExists = await User.findOne({ email });
+        // Check if user already exists
+        const { data: existingUser, error: existingError } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('email', email)
+            .single();
 
-        if (userExists) {
+        // If user exists, return error (ignore PGRST116 which means "not found")
+        if (existingUser) {
             return res.status(400).json({ message: 'User already exists' });
         }
+        
+        // Check for other errors
+        if (existingError && existingError.code !== 'PGRST116') {
+            console.error('Check existing user error:', existingError);
+            throw existingError;
+        }
 
-        // Check if this is the first user, if so, make them a super_admin
-        const userCount = await User.countDocuments();
+        // Count users to determine role
+        const { data: allUsers } = await supabase
+            .from('profiles')
+            .select('id');
+            
+        const userCount = allUsers?.length || 0;
         const role = userCount === 0 ? 'super_admin' : 'user';
-        const isApproved = userCount === 0; // First user is approved by default
+        const isApproved = userCount === 0;
 
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        const user = await User.create({
+        const userData = {
             email,
             password: hashedPassword,
             role,
-            isApproved,
-            personalInfo,
-            history,
-            photoURL,
-            // Add logic for role if needed, e.g., first user is super_admin
-        });
+            approved: isApproved,
+            photo_url: photoURL,
+            first_name: personalInfo?.firstName,
+            last_name: personalInfo?.lastName,
+            name: personalInfo?.name,
+            nickname: personalInfo?.nickname,
+            age: personalInfo?.age,
+            class: personalInfo?.class,
+            address_house: personalInfo?.currentAddress?.house,
+            address_city: personalInfo?.currentAddress?.city,
+            address_district: personalInfo?.currentAddress?.district,
+            work_age: history?.workAge,
+            birth_date: history?.birthDate,
+            birth_place_house: history?.placeOfBirth?.house,
+            birth_place_city: history?.placeOfBirth?.city,
+            birth_place_district: history?.placeOfBirth?.district,
+            race: history?.race,
+            nationality: history?.nationality,
+            tribe: history?.tribe,
+            education: history?.education,
+            class_n_entry_date: history?.classN?.entryDate,
+            class_n_location_house: history?.classN?.location?.house,
+            class_n_location_city: history?.classN?.location?.city,
+            class_n_location_district: history?.classN?.location?.district,
+            class_n_issuer_name: history?.classN?.issuerName,
+            class_n_id_card: history?.classN?.idCard,
+            class_n_total_work_age: history?.classN?.totalWorkAge,
+            class_m_entry_date: history?.classM?.entryDate,
+            class_m_location_house: history?.classM?.location?.house,
+            class_m_location_city: history?.classM?.location?.city,
+            class_m_location_district: history?.classM?.location?.district,
+            class_m_issuer_name: history?.classM?.issuerName,
+            class_m_id_card: history?.classM?.idCard,
+            class_m_total_work_age: history?.classM?.totalWorkAge,
+            father_first_name: history?.father?.firstName,
+            father_last_name: history?.father?.lastName,
+            father_age: history?.father?.age,
+            father_place_birth_house: history?.father?.placeOfBirth?.house,
+            father_place_birth_city: history?.father?.placeOfBirth?.city,
+            father_place_birth_district: history?.father?.placeOfBirth?.district,
+            father_current_address_house: history?.father?.currentAddress?.house,
+            father_current_address_city: history?.father?.currentAddress?.city,
+            father_current_address_district: history?.father?.currentAddress?.district,
+            mother_first_name: history?.mother?.firstName,
+            mother_last_name: history?.mother?.lastName,
+            mother_age: history?.mother?.age,
+            mother_place_birth_house: history?.mother?.placeOfBirth?.house,
+            mother_place_birth_city: history?.mother?.placeOfBirth?.city,
+            mother_place_birth_district: history?.mother?.placeOfBirth?.district,
+            mother_current_address_house: history?.mother?.currentAddress?.house,
+            mother_current_address_city: history?.mother?.currentAddress?.city,
+            mother_current_address_district: history?.mother?.currentAddress?.district,
+            skill_level: history?.skillLevel || 0,
+        };
+
+        const { data: user, error } = await supabase
+            .from('profiles')
+            .insert([userData])
+            .select()
+            .single();
+
+        if (error) {
+            console.error('registerUser insert error:', error);
+            throw error;
+        }
 
         res.status(201).json({
-            _id: user._id,
+            id: user.id,
             email: user.email,
             role: user.role,
-            token: jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
-            ...user.toObject()
+            token: jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
+            ...user
         });
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server Error' });
+        console.error('registerUser catch error:', error);
+        res.status(500).json({ message: 'Server Error: ' + error.message });
     }
 };
 
-// @desc    Authenticate user & get token
-// @route   POST /api/users/login
-// @access  Public
 const loginUser = async (req, res) => {
-    const { identifier, password } = req.body; // Changed email to identifier
+    const { identifier, password } = req.body;
 
     try {
         let user;
 
-        // Check if identifier looks like an email
         const isEmail = identifier.includes('@');
 
         if (isEmail) {
-            user = await User.findOne({ email: identifier });
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('email', identifier)
+                .single();
+            
+            user = data;
+            if (error && error.code !== 'PGRST116') throw error;
         } else {
-            // Assume it's "FirstName LastName" or "FirstName MiddleName LastName"
-            // Trim and split by whitespace, filter out empty strings
             const parts = identifier.trim().split(/\s+/).filter(part => part.length > 0);
-
+            
             if (parts.length >= 1) {
-                // Helper function to escape special regex characters
                 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
+                
                 let firstName, lastName;
 
                 if (parts.length >= 3) {
-                    // 3 or more words: first 2 words = firstName, rest = lastName
-                    // Example: "แสง อาทิตย์ บุญยงค์" -> firstName: "แสง อาทิตย์", lastName: "บุญยงค์"
                     firstName = escapeRegex(parts.slice(0, 2).join(' '));
                     lastName = escapeRegex(parts.slice(2).join(' '));
                 } else if (parts.length === 2) {
-                    // 2 words: normal case
-                    // Example: "สมพร จันทวงศ์" -> firstName: "สมพร", lastName: "จันทวงศ์"
                     firstName = escapeRegex(parts[0]);
                     lastName = escapeRegex(parts[1]);
                 } else {
-                    // 1 word: only firstName
                     firstName = escapeRegex(parts[0]);
                     lastName = '';
                 }
 
-                // Search case-insensitive
                 if (lastName) {
-                    user = await User.findOne({
-                        'personalInfo.firstName': { $regex: new RegExp(`^${firstName}$`, 'i') },
-                        'personalInfo.lastName': { $regex: new RegExp(`^${lastName}$`, 'i') }
-                    });
+                    const { data, error } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .ilike('first_name', `^${firstName}$`)
+                        .ilike('last_name', `^${lastName}$`)
+                        .single();
+                    user = data;
+                    if (error && error.code !== 'PGRST116') throw error;
                 } else {
-                    // Only first name provided
-                    user = await User.findOne({
-                        'personalInfo.firstName': { $regex: new RegExp(`^${firstName}$`, 'i') }
-                    });
+                    const { data, error } = await supabase
+                        .from('profiles')
+                        .select('*')
+                        .ilike('first_name', `^${firstName}$`)
+                        .single();
+                    user = data;
+                    if (error && error.code !== 'PGRST116') throw error;
                 }
             }
         }
 
         if (user && (await bcrypt.compare(password, user.password))) {
             res.json({
-                _id: user._id,
+                id: user.id,
                 email: user.email,
                 role: user.role,
-                token: jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
-                // Send back the full user profile
-                ...user.toObject()
+                token: jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
+                ...user
             });
         } else {
             res.status(401).json({ message: 'Invalid credentials' });
         }
     } catch (error) {
-        console.error(error);
+        console.error('loginUser error:', error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
 const approveUser = async (req, res) => {
     try {
-        const user = await User.findById(req.params.id);
+        const { data: user, error } = await supabase
+            .from('profiles')
+            .update({ approved: true })
+            .eq('id', req.params.id)
+            .select()
+            .single();
 
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        user.isApproved = true;
-        await user.save();
-
+        if (error) throw error;
         res.json({ message: 'User has been approved.' });
 
     } catch (error) {
-        console.error(error);
+        console.error('approveUser error:', error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
@@ -270,49 +325,65 @@ const setUserPassword = async (req, res) => {
     }
 
     try {
-        const user = await User.findById(req.params.id);
-        if (!user) {
+        const { data: user, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
+
+        if (error || !user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
         const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(password, salt);
-        await user.save();
+        const hashedPassword = await bcrypt.hash(password, salt);
 
+        const { error: updateError } = await supabase
+            .from('profiles')
+            .update({ password: hashedPassword })
+            .eq('id', req.params.id);
+
+        if (updateError) throw updateError;
         res.json({ message: 'Password updated successfully.' });
     } catch (error) {
-        console.error(error);
+        console.error('setUserPassword error:', error);
         res.status(500).json({ message: 'Server Error' });
     }
 };
 
 const changeUserPassword = async (req, res) => {
     const { currentPassword, newPassword } = req.body;
-    const userId = req.user._id; // Get user from protect middleware
+    const userId = req.user.id;
 
     if (!currentPassword || !newPassword || newPassword.length < 6) {
         return res.status(400).json({ message: 'Please provide current password and a new password of at least 6 characters.' });
     }
 
     try {
-        const user = await User.findById(userId);
+        const { data: user, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
 
-        // Add a check to ensure user exists
-        if (!user) {
+        if (error || !user) {
             return res.status(404).json({ message: 'User not found.' });
         }
 
-        // Check if current password is correct
         const isMatch = await bcrypt.compare(currentPassword, user.password);
         if (!isMatch) {
             return res.status(401).json({ message: 'Incorrect current password.' });
         }
 
-        // Hash and save new password
         const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(newPassword, salt);
-        await user.save();
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
 
+        const { error: updateError } = await supabase
+            .from('profiles')
+            .update({ password: hashedPassword })
+            .eq('id', userId);
+
+        if (updateError) throw updateError;
         res.json({ message: 'Password changed successfully.' });
     } catch (error) {
         res.status(500).json({ message: 'Server Error' });
