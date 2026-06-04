@@ -1,3 +1,5 @@
+const fetch = require('node-fetch');
+
 const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -13,16 +15,17 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
         persistSession: false,
         autoRefreshToken: false,
-    }
+    },
+    global: { fetch },
 });
 
-// Admin client สำหรับ create user (ต้องใช้ service_role key)
 const supabaseAdmin = supabaseServiceKey 
     ? createClient(supabaseUrl, supabaseServiceKey, {
         auth: {
             persistSession: false,
             autoRefreshToken: false,
-        }
+        },
+        global: { fetch },
     })
     : null;
 

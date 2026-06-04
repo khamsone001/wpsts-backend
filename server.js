@@ -118,16 +118,21 @@ const startServer = async () => {
         const { supabase } = require('./config/supabaseClient');
         const { data, error } = await supabase.from('profiles').select('id').limit(1);
         if (error) {
-            console.error('❌ Supabase Connection Error:', error.message);
-            process.exit(1);
+            console.warn('⚠️ Supabase Connection Warning:', error.message);
+            console.warn('⚠️ Server will start without DB verification');
+        } else {
+            console.log('✅ Supabase Connected successfully');
         }
         
         app.listen(PORT, () => {
-            console.log(`🚀 Server UP on port ${PORT} | Supabase Connected`);
+            console.log(`🚀 Server UP on port ${PORT}`);
         });
     } catch (error) {
-        console.error('Failed to initialize server:', error);
-        process.exit(1);
+        console.error('Failed to verify Supabase:', error.message);
+        console.warn('⚠️ Starting server anyway...');
+        app.listen(PORT, () => {
+            console.log(`🚀 Server UP on port ${PORT} (DB check skipped)`);
+        });
     }
 };
 
