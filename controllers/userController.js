@@ -433,6 +433,19 @@ const setUserPassword = async (req, res) => {
             .eq('id', req.params.id);
 
         if (updateError) throw updateError;
+        
+        // Also update Supabase Auth password if admin is available
+        if (supabaseAdmin) {
+            const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
+                req.params.id,
+                { password: password }
+            );
+            if (authError) {
+                console.error("Failed to update Supabase Auth password:", authError);
+                // We might still want to return success if profile was updated, but it's better to log it
+            }
+        }
+
         res.json({ message: 'Password updated successfully.' });
     } catch (error) {
         console.error('setUserPassword error:', error);

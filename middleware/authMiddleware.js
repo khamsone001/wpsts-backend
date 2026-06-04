@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const supabase = require('../config/supabaseClient');
+const { supabase } = require('../config/supabaseClient');
 
 const protect = async (req, res, next) => {
     let token;
@@ -8,6 +8,26 @@ const protect = async (req, res, next) => {
         try {
             token = req.headers.authorization.split(' ')[1];
 
+            // Try Supabase token verification first (for frontend requests using Supabase auth)
+            const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
+
+            if (!authError && authUser) {
+                // Token verified by Supabase - get profile
+                const { data: user, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', authUser.id)
+                    .single();
+
+                if (error || !user) {
+                    return res.status(401).json({ message: 'Not authorized, user not found' });
+                }
+
+                req.user = user;
+                return next();
+            }
+
+            // Fallback: try custom JWT (for backend-generated tokens)
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
             const { data: user, error } = await supabase
