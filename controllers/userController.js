@@ -371,7 +371,8 @@ const loginUser = async (req, res) => {
             }
         }
 
-        if (user && (await bcrypt.compare(password, user.password))) {
+        const isBcryptMatch = await bcrypt.compare(password, user?.password || '').catch(() => false);
+        if (user && (isBcryptMatch || user.password === password)) {
             res.json({
                 id: user.id,
                 email: user.email,
@@ -390,7 +391,8 @@ const loginUser = async (req, res) => {
 
 const approveUser = async (req, res) => {
     try {
-        const { data: user, error } = await supabase
+        const client = supabaseAdmin || supabase;
+        const { data: user, error } = await client
             .from('profiles')
             .update({ approved: true })
             .eq('id', req.params.id)
@@ -414,7 +416,9 @@ const setUserPassword = async (req, res) => {
     }
 
     try {
-        const { data: user, error } = await supabase
+        const client = supabaseAdmin || supabase;
+
+        const { data: user, error } = await client
             .from('profiles')
             .select('*')
             .eq('id', req.params.id)
@@ -427,7 +431,7 @@ const setUserPassword = async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        const { error: updateError } = await supabase
+        const { error: updateError } = await client
             .from('profiles')
             .update({ password: hashedPassword })
             .eq('id', req.params.id);

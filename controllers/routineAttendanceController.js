@@ -184,7 +184,7 @@ const getAttendanceReport = async (req, res) => {
                             currentDay.setHours(12, 0, 0, 0);
 
                             if (currentDay >= start && currentDay <= end) {
-                                allAttendance[routine][userId][day] = dayData;
+                                allAttendance[routine][userId][day] = { ...dayData, _year: doc.year, _month: doc.month };
                             }
                         });
                     });
@@ -211,7 +211,7 @@ const getAttendanceReport = async (req, res) => {
                         } else {
                             userReport.routineBreakdown[routine] = 1;
                         }
-                        userReport.absenceDetails.push({ routine, day: parseInt(day), note: dayData.note || '-' });
+                        userReport.absenceDetails.push({ routine, year: dayData._year, month: dayData._month, day: parseInt(day), note: dayData.note || '-' });
                     }
                 });
             });
