@@ -201,8 +201,11 @@ CREATE TABLE IF NOT EXISTS routines (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT,
-    type TEXT NOT NULL CHECK (type IN ('main', 'sub')),
+    type TEXT NOT NULL CHECK (type IN ('main', 'sub', 'samenan', 'samenan_main', 'samenan_sub')),
     "order" INTEGER DEFAULT 0,
+    frequency TEXT DEFAULT 'daily' CHECK (frequency IN ('daily', 'specific_days', 'special_days')),
+    repeat_days TEXT[] DEFAULT '{0,1,2,3,4,5,6}',
+    assignments JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -210,8 +213,27 @@ CREATE TABLE IF NOT EXISTS routines (
 ALTER TABLE routines ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Anyone can read routines" ON routines FOR SELECT USING (true);
-CREATE POLICY "Super admins can manage routines" ON routines FOR ALL USING (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+
+-- Admin and Super Admin can manage Novice Monk routines (samenan, samenan_main, samenan_sub)
+CREATE POLICY "Manage samenan routines" ON routines FOR ALL
+USING (
+    type IN ('samenan', 'samenan_main', 'samenan_sub')
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin'))
+)
+WITH CHECK (
+    type IN ('samenan', 'samenan_main', 'samenan_sub')
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'super_admin'))
+);
+
+-- ONLY Super Admin can manage system routines (main, sub)
+CREATE POLICY "Manage system routines" ON routines FOR ALL
+USING (
+    type IN ('main', 'sub')
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+)
+WITH CHECK (
+    type IN ('main', 'sub')
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
 
 -- ============================================
